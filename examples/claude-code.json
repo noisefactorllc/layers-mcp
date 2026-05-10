@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "layers": {
+      "command": "node",
+      "args": ["/absolute/path/to/layers-mcp/dist/index.js"],
+      "env": {
+        "LAYERS_URL": "https://layers.noisefactor.io",
+        "LAYERS_MCP_OUTPUT_DIR": "/tmp/layers-exports"
+      }
+    }
+  }
+}
