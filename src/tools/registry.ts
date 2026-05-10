@@ -1,4 +1,5 @@
 import type { BrowserSession } from '../harness/browser-session.js'
+import { wrapDownloadingTool, DOWNLOADING_COMMANDS } from './exports.js'
 
 export interface ToolDef {
   name: string
@@ -6,6 +7,8 @@ export interface ToolDef {
   inputSchema: { type: 'object'; properties?: Record<string, unknown>; required?: string[]; additionalProperties?: boolean }
   handler: (args: unknown) => Promise<unknown>
 }
+
+export interface RegistryOptions { outputDir: string }
 
 /**
  * Pull the live schema map and command names from the loaded Layers page,
@@ -20,7 +23,10 @@ export interface ToolDef {
  * browser. Playwright's `page.evaluate(stringExpression)` form is part of
  * its documented API.
  */
-export async function buildToolRegistry(session: BrowserSession): Promise<ToolDef[]> {
+export async function buildToolRegistry(
+  session: BrowserSession,
+  opts?: Partial<RegistryOptions>
+): Promise<ToolDef[]> {
   const page = session.getPage()
   const { commandNames, schemas } = await page.evaluate(`(async () => {
     const agent = window.LayersAgent
@@ -35,12 +41,16 @@ export async function buildToolRegistry(session: BrowserSession): Promise<ToolDe
   for (const name of commandNames) {
     const raw = schemas[name]
     const inputSchema = normalizeSchema(raw)
-    tools.push({
+    const baseTool: ToolDef = {
       name,
       description: `LayersAgent.${name} — see https://layers.noisefactor.io for command reference.`,
       inputSchema,
       handler: async (args: unknown) => session.runCommand(name, args ?? {})
-    })
+    }
+    const finalTool = DOWNLOADING_COMMANDS.has(name) && opts?.outputDir
+      ? wrapDownloadingTool(baseTool, session, opts.outputDir)
+      : baseTool
+    tools.push(finalTool)
   }
   return tools
 }

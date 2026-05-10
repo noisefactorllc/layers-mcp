@@ -24,7 +24,7 @@ async function main() {
   await session.start()
   console.error(`[layers-mcp] harness ready`)
 
-  const tools = await buildToolRegistry(session)
+  const tools = await buildToolRegistry(session, { outputDir: config.outputDir })
   const toolByName = new Map<string, ToolDef>(tools.map(t => [t.name, t]))
   console.error(`[layers-mcp] registered ${tools.length} tools`)
 
