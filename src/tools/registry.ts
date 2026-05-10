@@ -1,5 +1,5 @@
 import type { BrowserSession } from '../harness/browser-session.js'
-import { wrapDownloadingTool, DOWNLOADING_COMMANDS } from './exports.js'
+import { wrapDownloadingTool, DOWNLOADING_COMMANDS, wrapJobTool } from './exports.js'
 
 export interface ToolDef {
   name: string
@@ -47,9 +47,14 @@ export async function buildToolRegistry(
       inputSchema,
       handler: async (args: unknown) => session.runCommand(name, args ?? {})
     }
-    const finalTool = DOWNLOADING_COMMANDS.has(name) && opts?.outputDir
-      ? wrapDownloadingTool(baseTool, session, opts.outputDir)
-      : baseTool
+    let finalTool = baseTool
+    if (opts?.outputDir) {
+      if (DOWNLOADING_COMMANDS.has(name)) {
+        finalTool = wrapDownloadingTool(baseTool, session, opts.outputDir)
+      } else if (name === 'exportVideo') {
+        finalTool = wrapJobTool(baseTool, session, opts.outputDir)
+      }
+    }
     tools.push(finalTool)
   }
   return tools
