@@ -29,3 +29,40 @@ describe('exportVideo as a synchronous MCP tool', () => {
     expect(existsSync(resp.result.result.filePath)).toBe(true)
   }, 120_000)
 })
+
+describe('installFontBundle as a blocking MCP tool', () => {
+  it('blocks the MCP call until the install job settles', async () => {
+    // Stub the in-page fontaine loader to skip the 140 MB real download. The
+    // loader is a module-level singleton — dynamic-importing the module from
+    // here returns the same instance commands.js holds. We use a literal
+    // string passed to page.evaluate (mirroring registry.ts) to bypass
+    // Vitest's SSR rewrite of `import(...)`.
+    const page = session.getPage()
+    await page.evaluate(`(async () => {
+      const m = await import('/js/layers/fontaine-loader.js')
+      const loader = m.getFontaineLoader()
+      loader.install = async ({ onProgress }) => {
+        onProgress(0, 'Loading manifest...')
+        onProgress(50, 'Downloading: 70 / 140 MB')
+        onProgress(100, 'Installed 100 fonts')
+        loader.installedVersion = 'test-1'
+        loader.catalog = { fonts: [{ id: 'a', name: 'A' }] }
+        loader.fontsLoaded = true
+        return true
+      }
+      loader.isInstalled = async () => true
+    })()`)
+
+    const tools = await buildToolRegistry(session, { outputDir: config.outputDir })
+    const tool = tools.find(t => t.name === 'installFontBundle')!
+
+    const resp = await tool.handler({}) as any
+
+    // The wrapper must return the settled waitForJob envelope — not the
+    // {jobId} kickoff envelope, which lacks `result.status`. The job
+    // callback return value lands at resp.result.result.
+    expect(resp.ok).toBe(true)
+    expect(resp.result.status).toBe('succeeded')
+    expect(resp.result.result.count).toBe(1)
+  }, 30_000)
+})

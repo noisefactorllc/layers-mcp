@@ -1,5 +1,24 @@
 import type { BrowserSession } from '../harness/browser-session.js'
-import { wrapDownloadingTool, DOWNLOADING_COMMANDS, wrapJobTool } from './exports.js'
+import {
+  wrapDownloadingTool,
+  DOWNLOADING_COMMANDS,
+  wrapJobTool,
+  wrapBlockingJobTool
+} from './exports.js'
+
+// LayersAgent command categories that need special MCP-side wrapping:
+//   - DOWNLOADING_COMMANDS: synchronous commands that trigger a browser
+//     download as a side effect (e.g. `exportImage`).
+//   - DOWNLOAD_JOB_COMMANDS: job-modeled commands that return `{jobId}`
+//     immediately AND fire a browser download when the job settles
+//     (e.g. `exportVideo`).
+//   - BLOCKING_JOB_COMMANDS: job-modeled commands that return `{jobId}`
+//     immediately but do NOT use the browser's download pipeline
+//     (e.g. `installFontBundle`, which pulls into IndexedDB via fetch).
+//
+// Everything else is a synchronous pass-through.
+const DOWNLOAD_JOB_COMMANDS = new Set(['exportVideo'])
+const BLOCKING_JOB_COMMANDS = new Set(['installFontBundle'])
 
 export interface ToolDef {
   name: string
@@ -51,8 +70,10 @@ export async function buildToolRegistry(
     if (opts?.outputDir) {
       if (DOWNLOADING_COMMANDS.has(name)) {
         finalTool = wrapDownloadingTool(baseTool, session, opts.outputDir)
-      } else if (name === 'exportVideo') {
+      } else if (DOWNLOAD_JOB_COMMANDS.has(name)) {
         finalTool = wrapJobTool(baseTool, session, opts.outputDir)
+      } else if (BLOCKING_JOB_COMMANDS.has(name)) {
+        finalTool = wrapBlockingJobTool(baseTool, session)
       }
     }
     tools.push(finalTool)

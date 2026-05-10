@@ -6,6 +6,12 @@ import type { Config } from '../config.js'
 export class BrowserSession {
   private context: BrowserContext | null = null
   private page: Page | null = null
+  // Internal mutex chain for the download-capturing wrappers. The in-browser
+  // dispatcher serializes commands, but the Playwright page-level `download`
+  // listener race is on the JS side — two concurrent export tool calls could
+  // each see the other's download event. Wrappers acquire this mutex around
+  // the action+download-capture pair.
+  private downloadMutex: Promise<void> = Promise.resolve()
 
   constructor(private readonly config: Config) {}
 
@@ -47,9 +53,31 @@ export class BrowserSession {
   }
 
   /**
+   * Serialize executions of `fn` across all callers using a single mutex
+   * chain. Used by export tool wrappers so concurrent `tools/call` requests
+   * don't race over the page-level download listener.
+   */
+  async runExclusiveDownload<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = this.downloadMutex
+    let release!: () => void
+    this.downloadMutex = new Promise<void>(r => { release = r })
+    try {
+      await prev
+      return await fn()
+    } finally {
+      release()
+    }
+  }
+
+  /**
    * Run an action and capture any download triggered by it. Resolves to the
    * absolute path the download was saved to. Returns null if no download fired
    * within timeoutMs.
+   *
+   * Caller is responsible for serializing concurrent invocations (see
+   * `runExclusiveDownload`). The listener is registered with `page.on`, not
+   * `page.once`, and explicitly removed in `finally` so a late-arriving
+   * download after the timeout fires can't write a stale file.
    */
   async withDownloadCapture<T>(
     outputDir: string,
@@ -57,6 +85,7 @@ export class BrowserSession {
     timeoutMs = 120_000
   ): Promise<{ result: T; filePath: string | null }> {
     if (!this.page) throw new Error('BrowserSession.start() not called')
+    const page = this.page
     await mkdir(outputDir, { recursive: true })
 
     let resolveDownload!: (p: string) => void
@@ -76,19 +105,22 @@ export class BrowserSession {
         rejectDownload(e)
       }
     }
-    this.page.once('download', onDownload)
+    page.on('download', onDownload)
 
     const timer = setTimeout(() => resolveDownload(''), timeoutMs)
 
     let result: T
     try {
       result = await action()
+      const filePath = await downloadPromise
+      return { result, filePath: filePath || null }
     } finally {
       clearTimeout(timer)
+      // Always remove the listener — `page.on` doesn't auto-remove and a
+      // late-arriving download after the timeout fires would otherwise write
+      // a stale file the caller never sees.
+      page.off('download', onDownload)
     }
-
-    const filePath = await downloadPromise
-    return { result, filePath: filePath || null }
   }
 
   async shutdown(): Promise<void> {

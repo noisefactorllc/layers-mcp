@@ -13,7 +13,7 @@
     "dev": "tsup --watch",
     "start": "node dist/index.js",
     "setup": "playwright install chromium",
-    "test": "vitest run",
+    "test": "npm run build && vitest run",
     "test:watch": "vitest",
     "smoke": "node scripts/smoke.mjs"
   },

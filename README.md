@@ -144,8 +144,13 @@ work is unpushed. To run the tests:
    ```
 2. In layers-mcp, run vitest with the local URL:
    ```
-   LAYERS_URL=http://localhost:3002 npx vitest run
+   LAYERS_URL=http://localhost:3002 npm test
    ```
+
+`npm test` runs `npm run build && vitest run` — the build step is required
+because `tests/index.test.ts` spawns `dist/index.js` to exercise the real
+stdio JSON-RPC server. If you prefer to skip the build (e.g. when iterating
+on a non-stdio test), run `LAYERS_URL=... npx vitest run` directly.
 
 The runtime (production) default for `LAYERS_URL` is `https://layers.noisefactor.io`;
 once the Layers agent code is deployed, you can drop the env-var override.
@@ -181,7 +186,18 @@ npm run build     # production build (prepends shebang)
   limitation: once the video encoder is running, an in-flight cancel may not
   abort cleanly.
 - **First `installFontBundle` call downloads ~140 MB** into the headless
-  browser. Subsequent calls are cached in the persistent profile.
+  browser. Subsequent calls are cached in the persistent profile. The bundle
+  is fetched via in-page `fetch()` into IndexedDB, NOT via the browser's
+  download pipeline — layers-mcp blocks the MCP call until the install job
+  completes, but does not intercept the download at the network layer, so
+  there is no local file produced.
+- **`exportImage` with zero downloads.** The export-tool wrappers wait up to
+  120 s for a browser download to fire. If the underlying command returns
+  successfully but never triggers a download (e.g. an in-progress export was
+  cancelled mid-flight), the wrapper will block for the full timeout before
+  returning the LayersAgent envelope with `filePath: null`. The mutex
+  introduced in Phase 7 prevents concurrent calls from interfering with each
+  other, but does not shorten the zero-download case.
 - **Browser profile persists across MCP runs.** `LAYERS_MCP_PROFILE_DIR`
   (default `~/.cache/layers-mcp/profile`) keeps saved projects, installed
   fonts, and preferences between sessions. Delete the directory if you want

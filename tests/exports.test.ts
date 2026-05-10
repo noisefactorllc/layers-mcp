@@ -24,4 +24,19 @@ describe('export-tool download interception', () => {
     expect(statSync(resp.result.filePath).size).toBeGreaterThan(100)
     expect(resp.result.filePath.startsWith(outDir)).toBe(true)
   }, 60_000)
+
+  it('two parallel exportImage calls each capture their own file', async () => {
+    const tools = await buildToolRegistry(session, { outputDir: config.outputDir })
+    const tool = tools.find(t => t.name === 'exportImage')!
+    const [r1, r2] = await Promise.all([
+      tool.handler({ format: 'png', filename: 'one' }),
+      tool.handler({ format: 'png', filename: 'two' })
+    ]) as any[]
+    expect(r1.ok && r2.ok).toBe(true)
+    expect(typeof r1.result.filePath).toBe('string')
+    expect(typeof r2.result.filePath).toBe('string')
+    expect(r1.result.filePath).not.toBe(r2.result.filePath)
+    expect(existsSync(r1.result.filePath)).toBe(true)
+    expect(existsSync(r2.result.filePath)).toBe(true)
+  }, 60_000)
 })
