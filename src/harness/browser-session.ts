@@ -34,17 +34,73 @@ export class BrowserSession {
     await this.page.evaluate(() => (window as any).LayersAgent.ready)
   }
 
+  /**
+   * Best-effort check whether the underlying page is still usable. Used by
+   * crash-recovery code to detect Chromium dying (OOM, segfault, driver
+   * desync) before issuing the next command. Never throws.
+   */
+  async isAlive(): Promise<boolean> {
+    if (!this.page) return false
+    try {
+      await this.page.evaluate('1')
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Tear the current browser context down and bring up a fresh one. Used as
+   * the recovery primitive when `withRetry` detects a Playwright crash
+   * signature. Resets the mutex chain as well — anything that was queued
+   * against the dead page can never settle.
+   */
+  async restart(): Promise<void> {
+    await this.shutdown()
+    this.downloadMutex = Promise.resolve()
+    await this.start()
+  }
+
+  /**
+   * Wrap an arbitrary page-level operation so that a single browser-crash
+   * Playwright error triggers `restart()` and a single retry. Intentionally
+   * NOT applied to `start()` / `shutdown()` themselves — they are the
+   * recovery primitives.
+   *
+   * Crash signatures we recognize (per Playwright source):
+   *   - Target page, context or browser has been closed
+   *   - Target closed
+   *   - Page crashed
+   *   - Browser has been closed
+   */
+  private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn()
+    } catch (err: any) {
+      const msg = err?.message || String(err)
+      const isBrowserCrash =
+        msg.includes('Target page, context or browser has been closed') ||
+        msg.includes('Target closed') ||
+        msg.includes('Page crashed') ||
+        msg.includes('Browser has been closed')
+      if (!isBrowserCrash) throw err
+      console.error('[layers-mcp] browser crash detected, restarting…', msg)
+      await this.restart()
+      return fn()
+    }
+  }
+
   async evaluate<T>(fn: (...args: any[]) => T | Promise<T>, ...args: any[]): Promise<T> {
     if (!this.page) throw new Error('BrowserSession.start() not called')
-    return this.page.evaluate(fn as any, ...args)
+    return this.withRetry(() => this.page!.evaluate(fn as any, ...args))
   }
 
   /** Internal: used by tool handlers to invoke an arbitrary LayersAgent command. */
   async runCommand(name: string, args: unknown): Promise<unknown> {
-    return this.evaluate(
+    return this.withRetry(() => this.page!.evaluate(
       ({ n, a }) => (window as any).LayersAgent[n](a),
       { n: name, a: args }
-    )
+    ))
   }
 
   getPage(): Page {
@@ -78,54 +134,75 @@ export class BrowserSession {
    * `runExclusiveDownload`). The listener is registered with `page.on`, not
    * `page.once`, and explicitly removed in `finally` so a late-arriving
    * download after the timeout fires can't write a stale file.
+   *
+   * The wrapped `action()` runs through `withRetry`, so a browser crash
+   * during the action triggers `restart()` and one retry. The download
+   * listener is re-registered against the new page on the retry — listeners
+   * bound to the old page wouldn't fire anyway.
+   *
+   * `shouldWait` lets callers short-circuit the download wait based on
+   * action's return value — used by job wrappers to skip the 120 s wait
+   * when the kickoff envelope is itself an error (no download will fire).
+   * Defaults to always-wait, preserving the synchronous-export contract.
    */
   async withDownloadCapture<T>(
     outputDir: string,
     action: () => Promise<T>,
-    timeoutMs = 120_000
+    timeoutMs = 120_000,
+    shouldWait: (result: T) => boolean = () => true
   ): Promise<{ result: T; filePath: string | null }> {
     if (!this.page) throw new Error('BrowserSession.start() not called')
-    const page = this.page
     await mkdir(outputDir, { recursive: true })
 
-    let resolveDownload!: (p: string) => void
-    let rejectDownload!: (e: any) => void
-    const downloadPromise = new Promise<string>((res, rej) => {
-      resolveDownload = res
-      rejectDownload = rej
-    })
+    return this.withRetry(async () => {
+      const page = this.page!
+      let resolveDownload!: (p: string) => void
+      let rejectDownload!: (e: any) => void
+      const downloadPromise = new Promise<string>((res, rej) => {
+        resolveDownload = res
+        rejectDownload = rej
+      })
 
-    const onDownload = async (download: any) => {
-      try {
-        const suggested = download.suggestedFilename()
-        const dest = join(outputDir, suggested)
-        await download.saveAs(dest)
-        resolveDownload(dest)
-      } catch (e) {
-        rejectDownload(e)
+      const onDownload = async (download: any) => {
+        try {
+          const suggested = download.suggestedFilename()
+          const dest = join(outputDir, suggested)
+          await download.saveAs(dest)
+          resolveDownload(dest)
+        } catch (e) {
+          rejectDownload(e)
+        }
       }
-    }
-    page.on('download', onDownload)
+      page.on('download', onDownload)
 
-    const timer = setTimeout(() => resolveDownload(''), timeoutMs)
+      const timer = setTimeout(() => resolveDownload(''), timeoutMs)
 
-    let result: T
-    try {
-      result = await action()
-      const filePath = await downloadPromise
-      return { result, filePath: filePath || null }
-    } finally {
-      clearTimeout(timer)
-      // Always remove the listener — `page.on` doesn't auto-remove and a
-      // late-arriving download after the timeout fires would otherwise write
-      // a stale file the caller never sees.
-      page.off('download', onDownload)
-    }
+      let result: T
+      try {
+        result = await action()
+        if (!shouldWait(result)) {
+          return { result, filePath: null }
+        }
+        const filePath = await downloadPromise
+        return { result, filePath: filePath || null }
+      } finally {
+        clearTimeout(timer)
+        // Always remove the listener — `page.on` doesn't auto-remove and a
+        // late-arriving download after the timeout fires would otherwise write
+        // a stale file the caller never sees.
+        page.off('download', onDownload)
+      }
+    })
   }
 
   async shutdown(): Promise<void> {
     if (this.context) {
-      await this.context.close()
+      try {
+        await this.context.close()
+      } catch {
+        // Already-dead contexts (post-crash) throw on close — swallow so we
+        // can still null out state and bring up a fresh context.
+      }
       this.context = null
       this.page = null
     }

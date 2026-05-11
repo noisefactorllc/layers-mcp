@@ -16,7 +16,14 @@ export function wrapDownloadingTool(
     ...base,
     handler: async (args: unknown) => {
       const { result, filePath } = await session.runExclusiveDownload(() =>
-        session.withDownloadCapture(outputDir, async () => base.handler(args))
+        session.withDownloadCapture(
+          outputDir,
+          async () => base.handler(args),
+          undefined,
+          // Synchronous error envelope (e.g. INVALID_ARGS) means no download
+          // will fire — skip the wait.
+          (env: any) => Boolean(env?.ok)
+        )
       )
       // Splice the local path into the LayersAgent envelope.
       const env = result as any
@@ -94,7 +101,10 @@ export function wrapJobTool(
         const { result: kickoff, filePath } = await session.withDownloadCapture(
           outputDir,
           async () => base.handler(args),
-          120_000
+          120_000,
+          // Don't wait on a download if the kickoff already failed
+          // synchronously (e.g. INVALID_ARGS): no download will ever fire.
+          (env: any) => Boolean(env?.ok && env?.result?.jobId)
         )
         const env = kickoff as any
         if (!env?.ok || !env?.result?.jobId) return env  // pass through errors
