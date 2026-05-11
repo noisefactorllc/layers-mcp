@@ -134,28 +134,23 @@ A canonical copy of this block lives at `examples/claude-code.json`.
 
 ## Testing
 
-Tests run against a Layers instance (local dev server or production). To run
-the tests:
+Tests run against the Layers instance pointed to by `LAYERS_URL` (default:
+`https://layers.noisefactor.io`). To target a local dev server instead,
+start one in your layers checkout and override:
 
-1. In another terminal, start a Layers dev server in your layers checkout:
+1. In your layers checkout:
    ```
-   npm run dev    # currently: npx http-server public -p 3002 -c-1
+   npm run dev    # serves public/ on http://localhost:3002
    ```
-2. In layers-mcp, run vitest with the local URL:
+2. In layers-mcp:
    ```
    LAYERS_URL=http://localhost:3002 npm test
    ```
 
-Once the Layers agent build is deployed to `https://layers.noisefactor.io`,
-you can drop the `LAYERS_URL` override and tests run against production.
-
 `npm test` runs `npm run build && vitest run` — the build step is required
 because `tests/index.test.ts` spawns `dist/index.js` to exercise the real
-stdio JSON-RPC server. If you prefer to skip the build (e.g. when iterating
-on a non-stdio test), run `LAYERS_URL=... npx vitest run` directly.
-
-The runtime (production) default for `LAYERS_URL` is `https://layers.noisefactor.io`;
-once the Layers agent code is deployed, you can drop the env-var override.
+stdio JSON-RPC server. If you'd rather skip the build when iterating on a
+non-stdio test, run `LAYERS_URL=... npx vitest run` directly.
 
 ### End-to-end smoke
 
@@ -166,7 +161,7 @@ the vitest suite.
 
 ```bash
 npm run build
-LAYERS_URL=http://localhost:3002 npm run smoke
+npm run smoke    # or LAYERS_URL=http://localhost:3002 npm run smoke
 ```
 
 ## Development
@@ -179,14 +174,8 @@ npm run build     # production build (prepends shebang)
 
 ## Known Limitations
 
-- **Production deploy pending.** The Layers Phase 1-6 agent code is currently
-  local-only; prod `layers.noisefactor.io` does not yet expose
-  `window.LayersAgent`. Until that deploy lands, set
-  `LAYERS_URL=http://localhost:3002` (or wherever your local dev server runs)
-  before starting the MCP server.
-- **`exportVideo` cancellation is best-effort.** Mirrors the Layers-side
-  limitation: once the video encoder is running, an in-flight cancel may not
-  abort cleanly.
+- **`exportVideo` cancellation is best-effort.** Once the video encoder is
+  running, an in-flight cancel may not abort cleanly.
 - **First `installFontBundle` call downloads ~140 MB** into the headless
   browser. Subsequent calls are cached in the persistent profile. The bundle
   is fetched via in-page `fetch()` into IndexedDB, NOT via the browser's
@@ -197,9 +186,9 @@ npm run build     # production build (prepends shebang)
   120 s for a browser download to fire. If the underlying command returns
   successfully but never triggers a download (e.g. an in-progress export was
   cancelled mid-flight), the wrapper will block for the full timeout before
-  returning the LayersAgent envelope with `filePath: null`. The mutex
-  introduced in Phase 7 prevents concurrent calls from interfering with each
-  other, but does not shorten the zero-download case.
+  returning the LayersAgent envelope with `filePath: null`. Concurrent
+  export calls are serialized so they don't interfere with each other, but
+  the zero-download case still pays the full timeout.
 - **Browser profile persists across MCP runs.** `LAYERS_MCP_PROFILE_DIR`
   (default `~/.cache/layers-mcp/profile`) keeps saved projects, installed
   fonts, and preferences between sessions. Delete the directory if you want
