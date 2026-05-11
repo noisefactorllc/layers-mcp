@@ -134,18 +134,20 @@ A canonical copy of this block lives at `examples/claude-code.json`.
 
 ## Testing
 
-Phase 7 tests run against a local Layers dev server while the Layers Phase 1-6
-work is unpushed. To run the tests:
+Tests run against a Layers instance (local dev server or production). To run
+the tests:
 
-1. In another terminal, start the Layers dev server:
+1. In another terminal, start a Layers dev server in your layers checkout:
    ```
-   cd /Users/aayars/platform/layers
    npm run dev    # currently: npx http-server public -p 3002 -c-1
    ```
 2. In layers-mcp, run vitest with the local URL:
    ```
    LAYERS_URL=http://localhost:3002 npm test
    ```
+
+Once the Layers agent build is deployed to `https://layers.noisefactor.io`,
+you can drop the `LAYERS_URL` override and tests run against production.
 
 `npm test` runs `npm run build && vitest run` — the build step is required
 because `tests/index.test.ts` spawns `dist/index.js` to exercise the real

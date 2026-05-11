@@ -38,7 +38,7 @@ if (!existsSync(DIST)) {
 
 if (!process.env.LAYERS_URL) {
   console.error('[smoke] LAYERS_URL is required.')
-  console.error('[smoke] Start the layers dev server (`npm run dev` in /Users/aayars/platform/layers/)')
+  console.error('[smoke] Start the layers dev server (`npm run dev` in your layers checkout)')
   console.error('[smoke] and re-run with LAYERS_URL=http://localhost:3002 npm run smoke')
   process.exit(2)
 }
