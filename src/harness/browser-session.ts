@@ -2,6 +2,7 @@ import { chromium, type BrowserContext, type Page } from 'playwright'
 import { mkdir } from 'fs/promises'
 import { dirname, join } from 'path'
 import type { Config } from '../config.js'
+import { createLogger, type Logger } from '../log.js'
 
 export class BrowserSession {
   private context: BrowserContext | null = null
@@ -12,8 +13,11 @@ export class BrowserSession {
   // each see the other's download event. Wrappers acquire this mutex around
   // the action+download-capture pair.
   private downloadMutex: Promise<void> = Promise.resolve()
+  private readonly log: Logger
 
-  constructor(private readonly config: Config) {}
+  constructor(private readonly config: Config) {
+    this.log = createLogger(config.logLevel)
+  }
 
   async start(): Promise<void> {
     if (this.page) return
@@ -84,15 +88,29 @@ export class BrowserSession {
         msg.includes('Page crashed') ||
         msg.includes('Browser has been closed')
       if (!isBrowserCrash) throw err
-      console.error('[layers-mcp] browser crash detected, restarting…', msg)
+      this.log.warn('browser crash detected, restarting…', msg)
       await this.restart()
       return fn()
     }
   }
 
-  async evaluate<T>(fn: (...args: any[]) => T | Promise<T>, ...args: any[]): Promise<T> {
+  /**
+   * Evaluate a function in the page context.
+   *
+   * Mirrors Playwright's `page.evaluate(fn, arg)` contract: zero args or
+   * exactly one argument (packed into an object when multiple values are
+   * needed — see `runCommand` for the canonical pattern).
+   */
+  async evaluate<T, A = void>(
+    fn: ((arg: A) => T | Promise<T>) | string,
+    arg?: A
+  ): Promise<T> {
     if (!this.page) throw new Error('BrowserSession.start() not called')
-    return this.withRetry(() => this.page!.evaluate(fn as any, ...args))
+    return this.withRetry(() =>
+      arg === undefined
+        ? this.page!.evaluate(fn as any)
+        : this.page!.evaluate(fn as any, arg)
+    )
   }
 
   /** Internal: used by tool handlers to invoke an arbitrary LayersAgent command. */

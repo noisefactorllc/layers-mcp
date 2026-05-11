@@ -6,6 +6,11 @@ import type { ToolDef } from './registry.js'
  * triggered by the underlying LayersAgent command. The returned ToolDef has
  * the same name, description, and inputSchema as the original; only the
  * handler is replaced.
+ *
+ * The upstream LayersAgent envelope is treated as immutable: when we splice
+ * the local `filePath`, we shallow-clone the envelope and its `result` sub-
+ * object instead of mutating in place. This preserves the contract for any
+ * caller (or test) that retains a reference to the original.
  */
 export function wrapDownloadingTool(
   base: ToolDef,
@@ -25,10 +30,10 @@ export function wrapDownloadingTool(
           (env: any) => Boolean(env?.ok)
         )
       )
-      // Splice the local path into the LayersAgent envelope.
       const env = result as any
       if (env && typeof env === 'object' && env.result && filePath) {
-        env.result.filePath = filePath
+        // Clone rather than mutate the upstream envelope/result.
+        return { ...env, result: { ...env.result, filePath } }
       }
       return env
     }
@@ -114,12 +119,25 @@ export function wrapJobTool(
           jobId, timeoutMs: 120_000
         }) as any
         if (!finalEnv?.ok) return finalEnv
-        const job = finalEnv.result
-        if (filePath && job?.result) job.result.filePath = filePath
 
-        const failureEnv = describeJobFailure(finalEnv)
+        // Splice filePath into a CLONE of the final envelope's nested result.
+        // Original (frozen) shape: env -> result (jobState) -> result (job
+        // callback's return value). We rebuild both levels rather than mutating.
+        let envWithPath = finalEnv
+        const job = finalEnv.result
+        if (filePath && job?.result) {
+          envWithPath = {
+            ...finalEnv,
+            result: {
+              ...job,
+              result: { ...job.result, filePath }
+            }
+          }
+        }
+
+        const failureEnv = describeJobFailure(envWithPath)
         if (failureEnv) return failureEnv
-        return finalEnv
+        return envWithPath
       })
     }
   }
@@ -133,6 +151,12 @@ export function wrapJobTool(
  *
  * Default timeout is 10 minutes — the bundle is ~140 MB and the loader
  * does its own extraction phase.
+ *
+ * For visibility, we copy the job's last `progress.message` into the wrapper
+ * result under `progressMessage`. For `installFontBundle` that string carries
+ * the most useful in-flight signal a client gets — e.g. "Downloading: 70 /
+ * 140 MB", "Extracting font 80/100" — so surfacing it in the settled envelope
+ * lets a caller see what the last in-flight phase reported before completion.
  */
 export function wrapBlockingJobTool(
   base: ToolDef,
@@ -149,6 +173,17 @@ export function wrapBlockingJobTool(
       }) as any
       const failureEnv = describeJobFailure(finalEnv)
       if (failureEnv) return failureEnv
+
+      // Lift `progress.message` from the settled job into a top-level
+      // `progressMessage` on the wrapper result. Cloned, not mutated.
+      const job = finalEnv?.result
+      const progressMessage = job?.progress?.message
+      if (finalEnv?.ok && job && progressMessage) {
+        return {
+          ...finalEnv,
+          result: { ...job, progressMessage }
+        }
+      }
       return finalEnv
     }
   }

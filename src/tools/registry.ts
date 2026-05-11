@@ -5,6 +5,7 @@ import {
   wrapJobTool,
   wrapBlockingJobTool
 } from './exports.js'
+import { describeCommand } from './descriptions.js'
 
 // LayersAgent command categories that need special MCP-side wrapping:
 //   - DOWNLOADING_COMMANDS: synchronous commands that trigger a browser
@@ -62,7 +63,7 @@ export async function buildToolRegistry(
     const inputSchema = normalizeSchema(raw)
     const baseTool: ToolDef = {
       name,
-      description: `LayersAgent.${name} — see https://layers.noisefactor.io for command reference.`,
+      description: describeCommand(name),
       inputSchema,
       handler: async (args: unknown) => session.runCommand(name, args ?? {})
     }

@@ -33,6 +33,14 @@ ESM only, Node 18+. Stack mirrors `../shade-mcp/`: tsup + vitest +
   wraps that with `waitForJob` so callers get the final job result and
   `filePath` in one round trip.
 
+## Build behavior
+
+- `dist/` is gitignored. Consumers cloning the repo get the build
+  automatically because `package.json` defines `"prepare": "npm run build"`,
+  which npm runs after `npm install`. This is intentional convenience; if
+  you ever publish to npm, switch `prepare` to `prepublishOnly` so it only
+  fires on publish (not on consumer installs).
+
 ## When extending
 
 - Mirror `../shade-mcp/`'s file layout (`src/harness/`, `src/tools/`,

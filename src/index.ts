@@ -13,20 +13,22 @@ import {
   ListToolsRequestSchema
 } from '@modelcontextprotocol/sdk/types.js'
 import { loadConfig } from './config.js'
+import { createLogger } from './log.js'
 import { BrowserSession } from './harness/browser-session.js'
 import { buildToolRegistry, type ToolDef } from './tools/index.js'
 
 async function main() {
   const config = loadConfig()
+  const log = createLogger(config.logLevel)
   const session = new BrowserSession(config)
 
-  console.error(`[layers-mcp] starting browser harness…`)
+  log.info('starting browser harness…')
   await session.start()
-  console.error(`[layers-mcp] harness ready`)
+  log.info('harness ready')
 
   const tools = await buildToolRegistry(session, { outputDir: config.outputDir })
   const toolByName = new Map<string, ToolDef>(tools.map(t => [t.name, t]))
-  console.error(`[layers-mcp] registered ${tools.length} tools`)
+  log.info(`registered ${tools.length} tools`)
 
   const server = new Server(
     { name: 'layers-mcp', version: '0.1.0' },
@@ -78,10 +80,17 @@ async function main() {
   process.on('SIGTERM', shutdown)
 
   await server.connect(transport)
-  console.error(`[layers-mcp] connected; targeting ${config.layersUrl}`)
+  // NOTE: this exact string ('connected; targeting …') is the boot-readiness
+  // sentinel that `tests/index.test.ts` and `scripts/smoke.mjs` poll for over
+  // the child's stderr. Don't reword it without updating both. The line is
+  // emitted at `info` level — `LAYERS_MCP_LOG_LEVEL=warn` and above would
+  // suppress it, which is fine for production but breaks the test harness.
+  log.info(`connected; targeting ${config.layersUrl}`)
 }
 
 main().catch((err) => {
+  // Fatal errors always go to stderr, regardless of LOG_LEVEL — we want the
+  // crash surfaced even with LAYERS_MCP_LOG_LEVEL=error suppressed elsewhere.
   console.error('[layers-mcp] fatal:', err)
   process.exit(1)
 })
