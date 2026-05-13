@@ -2,12 +2,16 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import { BrowserSession } from '../src/harness/browser-session.js'
 import { loadConfig } from '../src/config.js'
+import { INTEGRATION_AVAILABLE } from './setup.js'
 
 const session = new BrowserSession(loadConfig())
 
-afterAll(async () => { await session.shutdown() })
+afterAll(async () => {
+  if (!INTEGRATION_AVAILABLE) return
+  await session.shutdown()
+})
 
-describe('BrowserSession (real Playwright, real prod)', () => {
+describe.skipIf(!INTEGRATION_AVAILABLE)('BrowserSession (real Playwright, real prod)', () => {
   it('launches, navigates, and awaits LayersAgent.ready', async () => {
     await session.start()
     const version = await session.evaluate<string>(() =>

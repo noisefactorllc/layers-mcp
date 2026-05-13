@@ -2,6 +2,7 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import { spawn, ChildProcess } from 'child_process'
 import { join } from 'path'
+import { INTEGRATION_AVAILABLE } from './setup.js'
 
 let child: ChildProcess
 let stdoutBuf = ''
@@ -63,7 +64,7 @@ function request(id: number, method: string, params: any): Promise<any> {
   return responsePromise
 }
 
-describe('MCP server end-to-end (stdio JSON-RPC)', () => {
+describe.skipIf(!INTEGRATION_AVAILABLE)('MCP server end-to-end (stdio JSON-RPC)', () => {
   it('responds to tools/list with a non-empty tool array', async () => {
     await startServer()
     const resp = await request(1, 'tools/list', {})

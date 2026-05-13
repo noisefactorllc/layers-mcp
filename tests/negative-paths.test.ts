@@ -6,15 +6,22 @@ import { join } from 'path'
 import { BrowserSession } from '../src/harness/browser-session.js'
 import { buildToolRegistry } from '../src/tools/registry.js'
 import { loadConfig } from '../src/config.js'
+import { INTEGRATION_AVAILABLE } from './setup.js'
 
 const outDir = mkdtempSync(join(tmpdir(), 'layers-mcp-neg-'))
 const config = { ...loadConfig(), outputDir: outDir }
 const session = new BrowserSession(config)
 
-beforeAll(async () => { await session.start() }, 60_000)
-afterAll(async () => { await session.shutdown() })
+beforeAll(async () => {
+  if (!INTEGRATION_AVAILABLE) return
+  await session.start()
+}, 60_000)
+afterAll(async () => {
+  if (!INTEGRATION_AVAILABLE) return
+  await session.shutdown()
+})
 
-describe('layers-mcp negative paths', () => {
+describe.skipIf(!INTEGRATION_AVAILABLE)('layers-mcp negative paths', () => {
   it('exportVideo with out-of-range duration returns INVALID_ARGS_RANGE', async () => {
     const tools = await buildToolRegistry(session, { outputDir: config.outputDir })
     const tool = tools.find(t => t.name === 'exportVideo')!

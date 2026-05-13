@@ -15,7 +15,8 @@
     "setup": "playwright install chromium",
     "test": "npm run build && vitest run",
     "test:watch": "vitest",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "test:integration": "node -e \"if(!process.env.LAYERS_URL){console.error('LAYERS_URL is required (e.g. http://localhost:3002 or https://layers.noisefactor.io)');process.exit(1)}\" && npm run build && vitest run"
   },
   "engines": { "node": ">=18.0.0" },
   "dependencies": {

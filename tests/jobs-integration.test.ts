@@ -5,15 +5,22 @@ import { join } from 'path'
 import { BrowserSession } from '../src/harness/browser-session.js'
 import { buildToolRegistry } from '../src/tools/registry.js'
 import { loadConfig } from '../src/config.js'
+import { INTEGRATION_AVAILABLE } from './setup.js'
 
 const outDir = mkdtempSync(join(tmpdir(), 'layers-mcp-jobs-'))
 const config = { ...loadConfig(), outputDir: outDir }
 const session = new BrowserSession(config)
 
-beforeAll(async () => { await session.start() }, 60_000)
-afterAll(async () => { await session.shutdown() })
+beforeAll(async () => {
+  if (!INTEGRATION_AVAILABLE) return
+  await session.start()
+}, 60_000)
+afterAll(async () => {
+  if (!INTEGRATION_AVAILABLE) return
+  await session.shutdown()
+})
 
-describe('exportVideo as a synchronous MCP tool', () => {
+describe.skipIf(!INTEGRATION_AVAILABLE)('exportVideo as a synchronous MCP tool', () => {
   it('returns the final job result + filePath when video finishes', async () => {
     const tools = await buildToolRegistry(session, { outputDir: config.outputDir })
     const tool = tools.find(t => t.name === 'exportVideo')!
@@ -30,7 +37,7 @@ describe('exportVideo as a synchronous MCP tool', () => {
   }, 120_000)
 })
 
-describe('installFontBundle as a blocking MCP tool', () => {
+describe.skipIf(!INTEGRATION_AVAILABLE)('installFontBundle as a blocking MCP tool', () => {
   it('blocks the MCP call until the install job settles', async () => {
     // Stub the in-page fontaine loader to skip the 140 MB real download. The
     // loader is a module-level singleton — dynamic-importing the module from

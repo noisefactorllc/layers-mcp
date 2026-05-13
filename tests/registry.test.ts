@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { BrowserSession } from '../src/harness/browser-session.js'
 import { buildToolRegistry, type ToolDef } from '../src/tools/registry.js'
 import { loadConfig } from '../src/config.js'
+import { INTEGRATION_AVAILABLE } from './setup.js'
 
 const session = new BrowserSession(loadConfig())
 // Built once in beforeAll and shared across tests — the registry build
@@ -11,12 +12,16 @@ const session = new BrowserSession(loadConfig())
 let tools: ToolDef[]
 
 beforeAll(async () => {
+  if (!INTEGRATION_AVAILABLE) return
   await session.start()
   tools = await buildToolRegistry(session)
 }, 60_000)
-afterAll(async () => { await session.shutdown() })
+afterAll(async () => {
+  if (!INTEGRATION_AVAILABLE) return
+  await session.shutdown()
+})
 
-describe('buildToolRegistry', () => {
+describe.skipIf(!INTEGRATION_AVAILABLE)('buildToolRegistry', () => {
   it('produces one tool per LayersAgent command', () => {
     const names = tools.map(t => t.name)
     expect(names).toContain('getState')
