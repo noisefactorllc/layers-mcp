@@ -82,7 +82,9 @@ export async function buildToolRegistry(
   return tools
 }
 
-function normalizeSchema(raw: unknown): ToolDef['inputSchema'] {
+// Exported for unit testing — `buildToolRegistry` needs a live page, but the
+// schema-shaping logic is pure and worth covering on its own.
+export function normalizeSchema(raw: unknown): ToolDef['inputSchema'] {
   if (!raw || typeof raw !== 'object') {
     return { type: 'object', properties: {}, additionalProperties: false }
   }

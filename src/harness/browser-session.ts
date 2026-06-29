@@ -153,10 +153,18 @@ export class BrowserSession {
    * `page.once`, and explicitly removed in `finally` so a late-arriving
    * download after the timeout fires can't write a stale file.
    *
-   * The wrapped `action()` runs through `withRetry`, so a browser crash
-   * during the action triggers `restart()` and one retry. The download
-   * listener is re-registered against the new page on the retry — listeners
-   * bound to the old page wouldn't fire anyway.
+   * Crash handling has a subtlety. The `action()` usually routes through
+   * `runCommand`, whose own `withRetry` catches a browser crash, calls
+   * `restart()`, and re-runs the command on a fresh page — so the crash is
+   * absorbed *inside* `action()` and never reaches this method's own
+   * `withRetry`. When that happens the fresh page is a different object than
+   * the `page` we bound the download listener to, the real download fired on
+   * the new page with no listener attached, and it can never arrive here. We
+   * detect that page swap once `action()` resolves and short-circuit instead
+   * of stalling for the full timeout — keeping an already-saved file if the
+   * download finished before the crash, otherwise returning `filePath: null`.
+   * (If a crash *does* escape `action()`, this method's `withRetry` restarts
+   * and re-runs the whole capture — listener and all — against the new page.)
    *
    * `shouldWait` lets callers short-circuit the download wait based on
    * action's return value — used by job wrappers to skip the 120 s wait
@@ -181,11 +189,16 @@ export class BrowserSession {
         rejectDownload = rej
       })
 
+      // Set once a download has been fully saved, so the page-swap guard
+      // below can distinguish a real, already-captured file from a download
+      // that never arrived.
+      let capturedPath: string | null = null
       const onDownload = async (download: any) => {
         try {
           const suggested = download.suggestedFilename()
           const dest = join(outputDir, suggested)
           await download.saveAs(dest)
+          capturedPath = dest
           resolveDownload(dest)
         } catch (e) {
           rejectDownload(e)
@@ -199,6 +212,23 @@ export class BrowserSession {
       try {
         result = await action()
         if (!shouldWait(result)) {
+          return { result, filePath: null }
+        }
+        // Crash-recovery inside action() (the inner runCommand's withRetry)
+        // can swap `this.page` out from under us. The listener above is bound
+        // to the now-dead `page`, so a download that hadn't fired yet will
+        // never resolve `downloadPromise`. Bail now rather than burning the
+        // full timeout on a download that can't arrive — unless the download
+        // had already completed on the original page before it crashed, in
+        // which case `capturedPath` holds the saved file and we keep it.
+        if (this.page !== page) {
+          if (capturedPath) {
+            return { result, filePath: capturedPath }
+          }
+          this.log.warn(
+            'page restarted mid-export; download not captured ' +
+            '(re-run the export to retrieve the file)'
+          )
           return { result, filePath: null }
         }
         const filePath = await downloadPromise

@@ -189,6 +189,14 @@ npm run build     # production build (prepends shebang)
   returning the LayersAgent envelope with `filePath: null`. Concurrent
   export calls are serialized so they don't interfere with each other, but
   the zero-download case still pays the full timeout.
+- **A browser crash mid-export can drop the local file.** If headless Chromium
+  crashes during an `exportImage`/`exportVideo` action, layers-mcp recovers the
+  browser and the command still reports success. A download that already
+  completed before the crash keeps its saved path; but if the crash happened
+  before the download fired, it lands on the fresh page with no listener
+  attached and isn't saved — so the path (`result.filePath`, or
+  `result.result.filePath` for `exportVideo`) is absent rather than pointing at
+  a local file. Re-run the export to capture it.
 - **Browser profile persists across MCP runs.** `LAYERS_MCP_PROFILE_DIR`
   (default `~/.cache/layers-mcp/profile`) keeps saved projects, installed
   fonts, and preferences between sessions. Delete the directory if you want

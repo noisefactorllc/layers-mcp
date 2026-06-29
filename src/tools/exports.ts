@@ -46,7 +46,7 @@ export function wrapDownloadingTool(
  * fine (job is succeeded OR caller envelope itself failed and we should just
  * pass it through unchanged).
  */
-function describeJobFailure(finalEnv: any): any | null {
+export function describeJobFailure(finalEnv: any): any | null {
   if (!finalEnv?.ok) return null
   const job = finalEnv.result
   if (!job) return null
