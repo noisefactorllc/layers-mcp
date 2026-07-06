@@ -1,14 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { existsSync, mkdtempSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
+import { existsSync } from 'fs'
 import { BrowserSession } from '../src/harness/browser-session.js'
 import { buildToolRegistry } from '../src/tools/registry.js'
-import { loadConfig } from '../src/config.js'
 import { INTEGRATION_AVAILABLE } from './setup.js'
+import { makeTestConfig } from './helpers.js'
 
-const outDir = mkdtempSync(join(tmpdir(), 'layers-mcp-jobs-'))
-const config = { ...loadConfig(), outputDir: outDir }
+const config = makeTestConfig('layers-mcp-jobs')
 const session = new BrowserSession(config)
 
 beforeAll(async () => {

@@ -1,10 +1,10 @@
 // tests/browser-session.test.ts
 import { describe, it, expect, afterAll } from 'vitest'
 import { BrowserSession } from '../src/harness/browser-session.js'
-import { loadConfig } from '../src/config.js'
 import { INTEGRATION_AVAILABLE } from './setup.js'
+import { makeTestConfig } from './helpers.js'
 
-const session = new BrowserSession(loadConfig())
+const session = new BrowserSession(makeTestConfig('layers-mcp-browser'))
 
 afterAll(async () => {
   if (!INTEGRATION_AVAILABLE) return

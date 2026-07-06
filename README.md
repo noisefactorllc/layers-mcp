@@ -52,7 +52,7 @@ All configuration is via environment variables.
 
 Tools are not hand-coded — at startup the server loads the Layers page, imports
 `/js/agent/schemas.js`, enumerates `window.LayersAgent`, and registers one MCP
-tool per public command. Today the catalog is roughly 84 tools spanning state
+tool per public command. Today the catalog is dozens of tools spanning state
 inspection, layer manipulation, drawing, selections, masks, project lifecycle,
 auto-corrections, font installation, and image/video export.
 

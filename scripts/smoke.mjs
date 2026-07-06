@@ -8,9 +8,10 @@
  * tests/index.test.ts (which only covers tools/list).
  *
  * Usage:
+ *   node scripts/smoke.mjs
  *   LAYERS_URL=http://localhost:3002 node scripts/smoke.mjs
  *
- * Requires the Layers dev server to be reachable at LAYERS_URL.
+ * Defaults to production Layers. Set LAYERS_URL to target a local dev server.
  */
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -20,6 +21,8 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 const DIST = join(ROOT, 'dist/index.js')
+const DEFAULT_LAYERS_URL = 'https://layers.noisefactor.io'
+const layersUrl = process.env.LAYERS_URL || DEFAULT_LAYERS_URL
 
 function log(msg) {
   console.log(`[smoke] ${msg}`)
@@ -36,17 +39,10 @@ if (!existsSync(DIST)) {
   process.exit(2)
 }
 
-if (!process.env.LAYERS_URL) {
-  console.error('[smoke] LAYERS_URL is required.')
-  console.error('[smoke] Start the layers dev server (`npm run dev` in your layers checkout)')
-  console.error('[smoke] and re-run with LAYERS_URL=http://localhost:3002 npm run smoke')
-  process.exit(2)
-}
-
 const child = spawn('node', [DIST], {
   cwd: ROOT,
   stdio: ['pipe', 'pipe', 'pipe'],
-  env: { ...process.env }
+  env: { ...process.env, LAYERS_URL: layersUrl }
 })
 
 let exited = false
@@ -115,7 +111,7 @@ function waitForReady(timeoutMs) {
 
 async function main() {
   log(`spawning ${DIST}`)
-  log(`LAYERS_URL=${process.env.LAYERS_URL}`)
+  log(`LAYERS_URL=${layersUrl}`)
 
   log('waiting for harness boot…')
   await waitForReady(60_000)

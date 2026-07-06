@@ -1,14 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { existsSync, statSync, mkdtempSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
+import { existsSync, statSync } from 'fs'
 import { BrowserSession } from '../src/harness/browser-session.js'
 import { buildToolRegistry } from '../src/tools/registry.js'
-import { loadConfig } from '../src/config.js'
 import { INTEGRATION_AVAILABLE } from './setup.js'
+import { makeTestConfig } from './helpers.js'
 
-const outDir = mkdtempSync(join(tmpdir(), 'layers-mcp-test-'))
-const config = { ...loadConfig(), outputDir: outDir }
+const config = makeTestConfig('layers-mcp-exports')
 const session = new BrowserSession(config)
 
 beforeAll(async () => {
@@ -29,7 +26,7 @@ describe.skipIf(!INTEGRATION_AVAILABLE)('export-tool download interception', () 
     expect(typeof resp.result.filePath).toBe('string')
     expect(existsSync(resp.result.filePath)).toBe(true)
     expect(statSync(resp.result.filePath).size).toBeGreaterThan(100)
-    expect(resp.result.filePath.startsWith(outDir)).toBe(true)
+    expect(resp.result.filePath.startsWith(config.outputDir)).toBe(true)
   }, 60_000)
 
   it('two parallel exportImage calls each capture their own file', async () => {

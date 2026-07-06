@@ -2,10 +2,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { BrowserSession } from '../src/harness/browser-session.js'
 import { buildToolRegistry, type ToolDef } from '../src/tools/registry.js'
-import { loadConfig } from '../src/config.js'
 import { INTEGRATION_AVAILABLE } from './setup.js'
+import { makeTestConfig } from './helpers.js'
 
-const session = new BrowserSession(loadConfig())
+const session = new BrowserSession(makeTestConfig('layers-mcp-registry'))
 // Built once in beforeAll and shared across tests — the registry build
 // involves a full page.evaluate to import schemas.js, so rebuilding it per
 // test is wasteful when the page state doesn't change between assertions.

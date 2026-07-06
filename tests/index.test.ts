@@ -3,6 +3,7 @@ import { describe, it, expect, afterAll } from 'vitest'
 import { spawn, ChildProcess } from 'child_process'
 import { join } from 'path'
 import { INTEGRATION_AVAILABLE } from './setup.js'
+import { makeTestEnv } from './helpers.js'
 
 let child: ChildProcess
 let stdoutBuf = ''
@@ -17,7 +18,8 @@ afterAll(() => {
 function startServer(): Promise<void> {
   child = spawn('node', [join(ROOT, 'dist/index.js')], {
     cwd: ROOT,
-    stdio: ['pipe', 'pipe', 'pipe']
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: makeTestEnv('layers-mcp-index')
   })
 
   child.stdout!.on('data', (chunk) => {

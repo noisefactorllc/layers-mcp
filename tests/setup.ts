@@ -1,33 +1,28 @@
 import { beforeAll } from 'vitest'
 
-// Every test file in this suite needs a live Layers instance + Playwright.
-// CI doesn't (yet) stand one up, so we treat LAYERS_URL as the integration
-// gate: present + reachable means run; absent or unreachable means skip.
-//
-// Tests opt in via `describe.skipIf(!INTEGRATION_AVAILABLE, ...)`. The
-// boolean is decided at module-import time so describe blocks can reference
-// it synchronously; the beforeAll hook below adds a reachability probe so we
-// fail loudly when LAYERS_URL is set but the server is down (avoids silently
-// passing a green build when the user thinks the integration tests ran).
+const DEFAULT_LAYERS_URL = 'https://layers.noisefactor.io'
 
-export const INTEGRATION_AVAILABLE = !!process.env.LAYERS_URL
+// Every test file in this suite needs a live Layers instance + Playwright.
+// Default to production, matching runtime config and README examples. If a
+// caller sets LAYERS_URL to a local dev server, we probe that instead. Either
+// way, an unreachable target fails loudly instead of silently skipping the
+// real browser-backed test suite.
+export const TEST_LAYERS_URL = process.env.LAYERS_URL || DEFAULT_LAYERS_URL
+process.env.LAYERS_URL = TEST_LAYERS_URL
+
+export const INTEGRATION_AVAILABLE = true
 
 beforeAll(async () => {
-  const url = process.env.LAYERS_URL
-  if (!url) {
-    // No URL — every integration suite is skipped via describe.skipIf, so
-    // vitest exits cleanly with 0 failures and N skipped. Nothing to do.
-    return
-  }
   try {
-    const res = await fetch(url, { redirect: 'manual' })
+    const res = await fetch(TEST_LAYERS_URL, { redirect: 'manual' })
     if (!res.ok && res.status !== 301 && res.status !== 302) {
       throw new Error(`HTTP ${res.status}`)
     }
   } catch (err: any) {
     throw new Error(
-      `[layers-mcp tests] LAYERS_URL=${url} not reachable: ${err?.message || err}. ` +
-        'Start the layers dev server first (`npm run dev` in your layers checkout).'
+      `[layers-mcp tests] LAYERS_URL=${TEST_LAYERS_URL} not reachable: ${err?.message || err}. ` +
+        'Set LAYERS_URL to a reachable Layers deployment, or start the local ' +
+        'Layers dev server (`npm run dev` in your layers checkout).'
     )
   }
 })
