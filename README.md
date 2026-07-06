@@ -65,6 +65,10 @@ To list them at runtime, choose one:
   authoritative registration list. Per-command input schemas live in
   `public/js/agent/schemas.js`.
 
+Effect catalog responses use `effectId` (for example, `synth/gradient`).
+Pass that value to `getEffectDefinition`, `addLayer` with `kind: "effect"`,
+or child-effect tools.
+
 Adding a new LayersAgent command in the `layers` repo automatically surfaces
 it here on the next MCP-server restart — there is no codegen step in this
 repo.

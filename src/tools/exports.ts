@@ -1,5 +1,51 @@
 import type { BrowserSession } from '../harness/browser-session.js'
 import type { ToolDef } from './registry.js'
+import { rename, stat } from 'fs/promises'
+import { basename, extname, join } from 'path'
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') return false
+    throw err
+  }
+}
+
+async function uniqueDownloadPath(outputDir: string, filename: string, currentPath: string): Promise<string> {
+  const safeName = basename(filename)
+  const first = join(outputDir, safeName)
+  if (first === currentPath || !(await pathExists(first))) return first
+
+  const ext = extname(safeName)
+  const stem = ext ? safeName.slice(0, -ext.length) : safeName
+  for (let i = 1; ; i++) {
+    const candidate = join(outputDir, `${stem}-${i}${ext}`)
+    if (candidate === currentPath || !(await pathExists(candidate))) return candidate
+  }
+}
+
+async function finalizeCapturedDownload(
+  filePath: string,
+  outputDir: string,
+  finalFilename?: string
+): Promise<{ filePath: string; sizeBytes?: number }> {
+  let localPath = filePath
+  if (finalFilename) {
+    const target = await uniqueDownloadPath(outputDir, finalFilename, filePath)
+    if (target !== filePath) {
+      await rename(filePath, target)
+      localPath = target
+    }
+  }
+  try {
+    return { filePath: localPath, sizeBytes: (await stat(localPath)).size }
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') return { filePath: localPath }
+    throw err
+  }
+}
 
 /**
  * Wrap an existing pass-through tool so its handler also captures any download
@@ -126,11 +172,20 @@ export function wrapJobTool(
         let envWithPath = finalEnv
         const job = finalEnv.result
         if (filePath && job?.result) {
+          const localDownload = await finalizeCapturedDownload(
+            filePath,
+            outputDir,
+            job.result.filename
+          )
           envWithPath = {
             ...finalEnv,
             result: {
               ...job,
-              result: { ...job.result, filePath }
+              result: {
+                ...job.result,
+                filePath: localDownload.filePath,
+                ...(localDownload.sizeBytes === undefined ? {} : { sizeBytes: localDownload.sizeBytes })
+              }
             }
           }
         }

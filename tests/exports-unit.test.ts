@@ -6,6 +6,9 @@
 // cloning (never mutate upstream), filePath splicing at the right nesting
 // depth, and job-failure mapping — and it had no coverage that runs in CI.
 import { describe, it, expect } from 'vitest'
+import { existsSync, mkdtempSync, statSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { basename, join } from 'path'
 import {
   wrapDownloadingTool,
   wrapJobTool,
@@ -149,6 +152,33 @@ describe('wrapJobTool', () => {
     expect(resp).not.toBe(waitEnv)
     expect(resp.result).not.toBe(jobState)
     expect(resp.result.result).not.toBe(jobInnerResult)
+  })
+
+  it('renames a captured video download to the final job filename and reports local size', async () => {
+    const outDir = mkdtempSync(join(tmpdir(), 'layers-mcp-video-rename-'))
+    const browserPath = join(outDir, 'layers-123.zip')
+    writeFileSync(browserPath, 'zip-bytes')
+    const calls: Array<{ name: string; args: unknown }> = []
+    const kickoff = { ok: true, command: 'exportVideo', result: { jobId: 'j1' } }
+    const jobInnerResult = { filename: 'requested-name.zip', exportId: 'e1' }
+    const jobState = { id: 'j1', status: 'succeeded', result: jobInnerResult }
+    const waitEnv = { ok: true, command: 'waitForJob', result: jobState, state: { s: 1 } }
+    const tool = wrapJobTool(
+      baseTool(async () => kickoff),
+      fakeSession({ filePath: browserPath, waitForJob: waitEnv, calls }),
+      outDir
+    )
+
+    const resp = await tool.handler({ filename: 'requested-name' }) as any
+
+    expect(basename(resp.result.result.filePath)).toBe('requested-name.zip')
+    expect(resp.result.result.sizeBytes).toBe(9)
+    expect(existsSync(resp.result.result.filePath)).toBe(true)
+    expect(statSync(resp.result.result.filePath).size).toBe(9)
+    expect(existsSync(browserPath)).toBe(false)
+    // Original job result is untouched.
+    expect((jobInnerResult as any).filePath).toBeUndefined()
+    expect((jobInnerResult as any).sizeBytes).toBeUndefined()
   })
 
   it('returns a failed waitForJob envelope as-is', async () => {

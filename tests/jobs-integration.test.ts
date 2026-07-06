@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { existsSync } from 'fs'
+import { existsSync, statSync } from 'fs'
+import { basename } from 'path'
 import { BrowserSession } from '../src/harness/browser-session.js'
 import { buildToolRegistry } from '../src/tools/registry.js'
 import { INTEGRATION_AVAILABLE } from './setup.js'
@@ -30,7 +31,10 @@ describe.skipIf(!INTEGRATION_AVAILABLE)('exportVideo as a synchronous MCP tool',
     expect(resp.ok).toBe(true)
     expect(resp.result.status).toBe('succeeded')
     expect(typeof resp.result.result.filePath).toBe('string')
+    expect(basename(resp.result.result.filePath)).toBe(resp.result.result.filename)
     expect(existsSync(resp.result.result.filePath)).toBe(true)
+    expect(resp.result.result.sizeBytes).toBe(statSync(resp.result.result.filePath).size)
+    expect(resp.result.result.sizeBytes).toBeGreaterThan(100)
   }, 120_000)
 })
 
