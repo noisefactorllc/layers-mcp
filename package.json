@@ -10,7 +10,7 @@
   },
   "scripts": {
     "prepare": "npm run build",
-    "build": "tsup",
+    "build": "tsup && tsc --emitDeclarationOnly",
     "postbuild": "node -e \"import{readFileSync as r,writeFileSync as w}from'fs';const f='dist/index.js';w(f,'#!/usr/bin/env node\\n'+r(f,'utf8'))\"",
     "dev": "tsup --watch",
     "start": "node dist/index.js",
@@ -30,7 +30,7 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "tsup": "^8.0.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
   "overrides": {
