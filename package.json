@@ -5,7 +5,9 @@
   "type": "module",
   "license": "MIT",
   "main": "dist/index.js",
-  "bin": { "layers-mcp": "dist/index.js" },
+  "bin": {
+    "layers-mcp": "dist/index.js"
+  },
   "scripts": {
     "prepare": "npm run build",
     "build": "tsup",
@@ -18,7 +20,9 @@
     "smoke": "node scripts/smoke.mjs",
     "test:integration": "node -e \"if(!process.env.LAYERS_URL){console.error('LAYERS_URL is required (e.g. http://localhost:3002 or https://layers.noisefactor.io)');process.exit(1)}\" && npm run build && vitest run"
   },
-  "engines": { "node": ">=18.0.0" },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
     "playwright": "^1.61.0"
@@ -26,7 +30,7 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "tsup": "^8.0.0",
-    "typescript": "^7.0.2",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   },
   "overrides": {
