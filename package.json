@@ -25,10 +25,10 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "playwright": "^1.62.0"
+    "playwright": "^1.62.1"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.1.2",
     "tsup": "^8.0.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
