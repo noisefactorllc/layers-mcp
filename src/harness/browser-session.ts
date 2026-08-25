@@ -3,6 +3,7 @@ import { mkdir } from 'fs/promises'
 import { dirname, join } from 'path'
 import type { Config } from '../config.js'
 import { createLogger, type Logger } from '../log.js'
+import { uniqueDownloadPath } from './download-path.js'
 
 export class BrowserSession {
   private context: BrowserContext | null = null
@@ -195,8 +196,10 @@ export class BrowserSession {
       let capturedPath: string | null = null
       const onDownload = async (download: any) => {
         try {
-          const suggested = download.suggestedFilename()
-          const dest = join(outputDir, suggested)
+          // Never `join(outputDir, suggested)` directly: the name is page-
+          // supplied, so it can escape the directory, and saveAs overwrites,
+          // so it can destroy a previous export.
+          const dest = await uniqueDownloadPath(outputDir, download.suggestedFilename())
           await download.saveAs(dest)
           capturedPath = dest
           resolveDownload(dest)
