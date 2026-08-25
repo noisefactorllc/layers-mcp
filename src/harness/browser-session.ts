@@ -3,7 +3,7 @@ import { mkdir } from 'fs/promises'
 import { dirname, join } from 'path'
 import type { Config } from '../config.js'
 import { createLogger, type Logger } from '../log.js'
-import { uniqueDownloadPath } from './download-path.js'
+import { uniqueDownloadPath, releaseDownloadPath } from './download-path.js'
 
 export class BrowserSession {
   private context: BrowserContext | null = null
@@ -195,15 +195,20 @@ export class BrowserSession {
       // that never arrived.
       let capturedPath: string | null = null
       const onDownload = async (download: any) => {
+        let dest: string | null = null
         try {
           // Never `join(outputDir, suggested)` directly: the name is page-
           // supplied, so it can escape the directory, and saveAs overwrites,
-          // so it can destroy a previous export.
-          const dest = await uniqueDownloadPath(outputDir, download.suggestedFilename())
+          // so it can destroy a previous export. The resolver reserves the
+          // name it hands back, which is also what keeps two downloads fired
+          // inside one capture window from landing on the same path.
+          dest = await uniqueDownloadPath(outputDir, download.suggestedFilename())
           await download.saveAs(dest)
           capturedPath = dest
           resolveDownload(dest)
         } catch (e) {
+          // Don't leave the empty reservation behind if the save failed.
+          if (dest) await releaseDownloadPath(dest)
           rejectDownload(e)
         }
       }

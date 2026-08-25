@@ -43,7 +43,7 @@ All configuration is via environment variables.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LAYERS_URL` | `https://layers.noisefactor.io` | URL of the Layers app to drive |
-| `LAYERS_MCP_OUTPUT_DIR` | `$PWD/layers-mcp-exports` | Where `exportImage`/`exportVideo` write files |
+| `LAYERS_MCP_OUTPUT_DIR` | `$PWD/layers-mcp-exports` | Where `exportImage`/`exportVideo` write files. Exports never overwrite: a repeat of the same filename lands as `shot-1.png`, `shot-2.png`, … and the envelope's `filePath` names the file that was actually written, so read it rather than assuming a stable path. |
 | `LAYERS_MCP_PROFILE_DIR` | `~/.cache/layers-mcp/profile` | Chromium user-data-dir (preserves saved projects, installed fonts, prefs) |
 | `LAYERS_MCP_HEADFUL` | `false` | Set `true` to launch with a visible browser window |
 | `LAYERS_MCP_LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |

@@ -6,7 +6,7 @@
 // the default name reused) silently leave one file where the caller asked for
 // two. Drives the real method with a fake page, no browser.
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'fs'
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { BrowserSession } from '../src/harness/browser-session.js'
@@ -25,6 +25,10 @@ function writingPage() {
     fireDownload(filename: string, contents: string): Promise<unknown> {
       return Promise.resolve(handler?.({
         suggestedFilename: () => filename,
+        // Real Playwright's saveAs also creates missing parent directories;
+        // these tests never need that, since the parent is always outputDir,
+        // which withDownloadCapture mkdir's. Worth knowing it understates the
+        // pre-fix severity rather than overstating it.
         saveAs: async (dest: string) => { writeFileSync(dest, contents) }
       }))
     }
@@ -112,8 +116,34 @@ describe('download collisions', () => {
     expect(filePath).toBe(join(out, 'only.png'))
   })
 
-  it('a download whose suggested name has path separators stays inside outputDir', async () => {
+  it('two downloads inside one capture window do not land on the same path', async () => {
+    // runExclusiveDownload serializes whole captures, not download events
+    // within one: the listener fires per event, and resolving a name yields
+    // before the save. Both events used to stat-miss the same free name and
+    // one silently destroyed the other.
     const out = newOutDir()
+    const session = new BrowserSession(CONFIG)
+    const page = writingPage()
+    ;(session as any).page = page
+
+    await session.withDownloadCapture(out, async () => {
+      await Promise.all([
+        page.fireDownload('pair.png', 'A'),
+        page.fireDownload('pair.png', 'B')
+      ])
+      return { ok: true, result: {} }
+    })
+
+    const written = readdirSync(out).sort()
+    expect(written).toEqual(['pair-1.png', 'pair.png'])
+    const contents = written.map(f => readFileSync(join(out, f), 'utf8')).sort()
+    expect(contents).toEqual(['A', 'B'])
+  })
+
+  it('a download whose suggested name has path separators stays inside outputDir', async () => {
+    const parent = mkdtempSync(join(tmpdir(), 'lmcp-parent-'))
+    const out = join(parent, 'exports')
+    mkdirSync(out)
     const session = new BrowserSession(CONFIG)
     const page = writingPage()
     ;(session as any).page = page
@@ -125,5 +155,7 @@ describe('download collisions', () => {
 
     expect(filePath).toBe(join(out, 'escape.png'))
     expect(existsSync(join(out, 'escape.png'))).toBe(true)
+    // Say what the title claims: nothing was written outside outputDir.
+    expect(readdirSync(parent)).toEqual(['exports'])
   })
 })
