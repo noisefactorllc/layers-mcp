@@ -1,3 +1,8 @@
+<!-- repo-hero -->
+<a href="https://layers.noisefactor.io/"><img src="docs/hero.jpg" alt="Layers MCP MCP server for Layers" width="100%"></a>
+
+<sub>Open source from <a href="https://noisefactor.io">Noise Factor</a> &middot; <a href="https://github.com/noisefactorllc">more projects</a></sub>
+
 # layers-mcp
 
 MCP server for the [Layers](https://layers.noisefactor.io) image/video editor.
