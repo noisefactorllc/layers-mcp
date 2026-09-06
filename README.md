@@ -7,11 +7,11 @@
 
 MCP server for the [Layers](https://layers.noisefactor.io) image/video editor.
 
-Brokers between an MCP client (Claude Code, Cursor, Windsurf, etc.) and the
-in-page `window.LayersAgent` API. Launches a persistent headless Chromium
-session, navigates it at the live Layers app, and exposes every LayersAgent
-command as an MCP tool. Tool schemas are pulled from the running page at
-startup, so commands added in the `layers` repo surface here with no codegen.
+layers-mcp connects an MCP client (Claude Code, Cursor, Windsurf, etc.) to the
+in-page `window.LayersAgent` API. It starts a persistent headless Chromium
+session at the live Layers app. It exposes every LayersAgent command as an
+MCP tool. The server loads tool schemas from the running page at startup.
+Commands added in the `layers` repo appear here without code generation.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ startup, so commands added in the `layers` repo surface here with no codegen.
                                                      layers.noisefactor.io
 ```
 
-One Chromium context per MCP-server lifetime. Tool handlers call
+The server uses one Chromium context for its lifetime. Tool handlers call
 `page.evaluate(name, args)` against `window.LayersAgent` and return the
 LayersAgent envelope (`{ ok, command, result, state }`) verbatim as a text
 content block. Export tools also intercept the browser's download event and
@@ -39,25 +39,30 @@ npm run setup    # downloads Playwright Chromium
 npm run build
 ```
 
-Node 18+ required.
+Node 18+ is required.
 
 ## Configuration
 
-All configuration is via environment variables.
+Environment variables control all configuration.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LAYERS_URL` | `https://layers.noisefactor.io` | URL of the Layers app to drive |
-| `LAYERS_MCP_OUTPUT_DIR` | `$PWD/layers-mcp-exports` | Where `exportImage`/`exportVideo` write files. Exports never overwrite: a repeat of the same filename lands as `shot-1.png`, `shot-2.png`, … and the envelope's `filePath` names the file that was actually written, so read it rather than assuming a stable path. |
+| `LAYERS_MCP_OUTPUT_DIR` | `$PWD/layers-mcp-exports` | Where `exportImage`/`exportVideo` write files. Exports never overwrite existing files. Repeated filenames become `shot-1.png`, `shot-2.png`, and so on. The envelope's `filePath` names the actual output file. Read that path. Do not assume a stable path. |
 | `LAYERS_MCP_PROFILE_DIR` | `~/.cache/layers-mcp/profile` | Chromium user-data-dir (preserves saved projects, installed fonts, prefs) |
 | `LAYERS_MCP_HEADFUL` | `false` | Set `true` to launch with a visible browser window |
 | `LAYERS_MCP_LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
 
 ## Available Tools
 
-Tools are not hand-coded — at startup the server loads the Layers page, imports
-`/js/agent/schemas.js`, enumerates `window.LayersAgent`, and registers one MCP
-tool per public command. Today the catalog is dozens of tools spanning state
+Tools are not hand-coded. At startup, the server:
+
+1. Loads the Layers page.
+2. Imports `/js/agent/schemas.js`.
+3. Enumerates `window.LayersAgent`.
+4. Registers one MCP tool per public command.
+
+Today the catalog is dozens of tools spanning state
 inspection, layer manipulation, drawing, selections, masks, project lifecycle,
 auto-corrections, font installation, and image/video export.
 
@@ -74,9 +79,8 @@ Effect catalog responses use `effectId` (for example, `synth/gradient`).
 Pass that value to `getEffectDefinition`, `addLayer` with `kind: "effect"`,
 or child-effect tools.
 
-Adding a new LayersAgent command in the `layers` repo automatically surfaces
-it here on the next MCP-server restart — there is no codegen step in this
-repo.
+New LayersAgent commands in the `layers` repo appear here automatically on
+the next MCP-server restart. This repo has no code generation step.
 
 ## Client Integration
 
@@ -145,7 +149,7 @@ A canonical copy of this block lives at `examples/claude-code.json`.
 
 Tests run against the Layers instance pointed to by `LAYERS_URL` (default:
 `https://layers.noisefactor.io`). To target a local dev server instead,
-start one in your layers checkout and override:
+use these steps:
 
 1. In your layers checkout:
    ```
@@ -156,17 +160,17 @@ start one in your layers checkout and override:
    LAYERS_URL=http://localhost:3002 npm test
    ```
 
-`npm test` runs `npm run build && vitest run` — the build step is required
-because `tests/index.test.ts` spawns `dist/index.js` to exercise the real
-stdio JSON-RPC server. If you'd rather skip the build when iterating on a
-non-stdio test, run `LAYERS_URL=... npx vitest run` directly.
+`npm test` runs `npm run build && vitest run`. The build step is required
+because `tests/index.test.ts` starts `dist/index.js` to test the real
+stdio JSON-RPC server. To skip the build when iterating on a non-stdio test,
+run `LAYERS_URL=... npx vitest run` directly.
 
 ### End-to-end smoke
 
-`scripts/smoke.mjs` (run as `npm run smoke`) boots the built binary, sends a
-real `tools/list` and `tools/call` (`getState`), and verifies the responses
-are valid MCP envelopes. Useful as a one-shot reproducible check on top of
-the vitest suite.
+`scripts/smoke.mjs` (run as `npm run smoke`) starts the built binary. It sends
+real `tools/list` and `tools/call` (`getState`) requests. It checks that the
+responses are valid MCP envelopes. This provides a reproducible check in
+addition to the vitest suite.
 
 ```bash
 npm run build
@@ -186,30 +190,29 @@ npm run build     # production build (prepends shebang)
 - **`exportVideo` cancellation is best-effort.** Once the video encoder is
   running, an in-flight cancel may not abort cleanly.
 - **First `installFontBundle` call downloads ~140 MB** into the headless
-  browser. Subsequent calls are cached in the persistent profile. The bundle
-  is fetched via in-page `fetch()` into IndexedDB, NOT via the browser's
-  download pipeline — layers-mcp blocks the MCP call until the install job
-  completes, but does not intercept the download at the network layer, so
-  there is no local file produced.
+  browser. The persistent profile caches the bundle for subsequent calls.
+  In-page `fetch()` loads the bundle into IndexedDB, without the browser's
+  download pipeline. layers-mcp blocks the MCP call until the install job
+  completes. It does not intercept the download at the network layer, so it
+  produces no local file.
 - **`exportImage` with zero downloads.** The export-tool wrappers wait up to
   120 s for a browser download to fire. If the underlying command returns
-  successfully but never triggers a download (e.g. an in-progress export was
-  cancelled mid-flight), the wrapper will block for the full timeout before
-  returning the LayersAgent envelope with `filePath: null`. Concurrent
-  export calls are serialized so they don't interfere with each other, but
-  the zero-download case still pays the full timeout.
+  successfully but never triggers a download, the wrapper blocks for the
+  full timeout. For example, an in-progress export may have been cancelled.
+  The wrapper then returns the LayersAgent envelope with `filePath: null`.
+  Concurrent export calls run serially so they do not interfere with each
+  other. The zero-download case still waits for the full timeout.
 - **A browser crash mid-export can drop the local file.** If headless Chromium
   crashes during an `exportImage`/`exportVideo` action, layers-mcp recovers the
   browser and the command still reports success. A download that already
-  completed before the crash keeps its saved path; but if the crash happened
-  before the download fired, it lands on the fresh page with no listener
-  attached and isn't saved — so the path (`result.filePath`, or
-  `result.result.filePath` for `exportVideo`) is absent rather than pointing at
-  a local file. Re-run the export to capture it.
+  completed before the crash keeps its saved path. If the crash precedes
+  the download, the download arrives on the new page without a listener and
+  is not saved. The path (`result.filePath`, or `result.result.filePath` for
+  `exportVideo`) is then absent. Run the export again to capture the file.
 - **Browser profile persists across MCP runs.** `LAYERS_MCP_PROFILE_DIR`
   (default `~/.cache/layers-mcp/profile`) keeps saved projects, installed
   fonts, and preferences between sessions. Delete the directory if you want
-  a clean slate.
+  an empty profile.
 
 ## License
 
