@@ -14,6 +14,14 @@ export class BrowserSession {
   // each see the other's download event. Wrappers acquire this mutex around
   // the action+download-capture pair.
   private downloadMutex: Promise<void> = Promise.resolve()
+  // Coalesces concurrent crash-recovery restarts. Two tool calls that both
+  // see a Playwright crash signature would otherwise interleave
+  // shutdown()/start(): the second caller's shutdown() can tear down the
+  // fresh context the first caller just launched, and both can race
+  // launchPersistentContext on the same profile dir. Concurrent callers
+  // instead join the single in-flight restart. Cleared once it settles, so
+  // a failed restart is retried on the next call rather than cached.
+  private restartInFlight: Promise<void> | null = null
   private readonly log: Logger
 
   constructor(private readonly config: Config) {
@@ -59,8 +67,22 @@ export class BrowserSession {
    * the recovery primitive when `withRetry` detects a Playwright crash
    * signature. Resets the mutex chain as well — anything that was queued
    * against the dead page can never settle.
+   *
+   * Concurrent callers coalesce onto a single in-flight restart: the first
+   * one drives shutdown()/start() while the rest await the same promise and
+   * retry against the page it produced. A failed restart rejects every
+   * coalesced caller and is not cached — the next call starts a new attempt.
    */
   async restart(): Promise<void> {
+    if (!this.restartInFlight) {
+      this.restartInFlight = this.performRestart().finally(() => {
+        this.restartInFlight = null
+      })
+    }
+    await this.restartInFlight
+  }
+
+  private async performRestart(): Promise<void> {
     await this.shutdown()
     this.downloadMutex = Promise.resolve()
     await this.start()
@@ -116,6 +138,7 @@ export class BrowserSession {
 
   /** Internal: used by tool handlers to invoke an arbitrary LayersAgent command. */
   async runCommand(name: string, args: unknown): Promise<unknown> {
+    if (!this.page) throw new Error('BrowserSession.start() not called')
     return this.withRetry(() => this.page!.evaluate(
       ({ n, a }) => (window as any).LayersAgent[n](a),
       { n: name, a: args }

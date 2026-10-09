@@ -143,3 +143,78 @@ describe('withDownloadCapture (no browser)', () => {
     ).rejects.toThrow(/start\(\) not called/)
   })
 })
+
+describe('restart coalescing (no browser)', () => {
+  // Shutdown/start are stubbed on the instance (never a real browser): the
+  // race under test is in the session's own bookkeeping, not in Playwright.
+  function stubLifecycle(session: BrowserSession, startImpl: () => Promise<void>) {
+    const shutdown = vi.spyOn(session as any, 'shutdown').mockResolvedValue(undefined)
+    const start = vi.spyOn(session as any, 'start').mockImplementation(startImpl)
+    return { shutdown, start }
+  }
+
+  it('coalesces concurrent crash-recovery restarts into one shutdown/start cycle', async () => {
+    // Two tool calls that both see a browser crash each call restart().
+    // Uncoalesced, the second caller's shutdown() can tear down the fresh
+    // context the first caller just launched, and both can race
+    // launchPersistentContext on the same profile dir.
+    const session = new BrowserSession(CONFIG)
+    let startCalls = 0
+    let releaseStart!: () => void
+    const gated = stubLifecycle(session, async () => {
+      startCalls++
+      await new Promise<void>(r => { releaseStart = r })
+    })
+
+    const all = Promise.all([session.restart(), session.restart(), session.restart()])
+    // restart() suspends at its first await before start() runs; let the
+    // coalesced cycle reach the gated start() before releasing it.
+    await vi.waitFor(() => expect(startCalls).toBe(1))
+    // Every caller is now parked on the single in-flight restart.
+    releaseStart()
+    await all
+
+    expect(startCalls).toBe(1)
+    expect(gated.shutdown).toHaveBeenCalledTimes(1)
+    expect((session as any).restartInFlight).toBeNull()
+  })
+
+  it('a failed restart rejects every coalesced caller and does not poison later restarts', async () => {
+    const session = new BrowserSession(CONFIG)
+    let fail = true
+    stubLifecycle(session, async () => {
+      if (fail) throw new Error('launch failed')
+    })
+
+    const settled = await Promise.allSettled([session.restart(), session.restart()])
+    expect(settled.map(r => r.status)).toEqual(['rejected', 'rejected'])
+
+    fail = false
+    await session.restart() // fresh attempt, not the cached failure
+  })
+
+  it('serializes overlapping sequential restarts (joiner awaits, does not relaunch)', async () => {
+    const session = new BrowserSession(CONFIG)
+    let startCalls = 0
+    stubLifecycle(session, async () => {
+      startCalls++
+      await new Promise(r => setTimeout(r, 20))
+    })
+
+    const first = session.restart()
+    // Second caller arrives while the first restart is mid-flight.
+    const second = session.restart()
+    await Promise.all([first, second])
+    expect(startCalls).toBe(1)
+
+    // A restart issued after the previous one settled starts a new cycle.
+    await session.restart()
+    expect(startCalls).toBe(2)
+  })
+
+  it('runCommand before start() throws the start() error, not a raw TypeError', async () => {
+    const session = new BrowserSession(CONFIG)
+    await expect(session.runCommand('getState', {}))
+      .rejects.toThrow(/start\(\) not called/)
+  })
+})
