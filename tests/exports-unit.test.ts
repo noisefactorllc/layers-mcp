@@ -181,6 +181,48 @@ describe('wrapJobTool', () => {
     expect((jobInnerResult as any).sizeBytes).toBeUndefined()
   })
 
+  it('runs waitForJob inside the download-capture window so long exports keep their filePath', async () => {
+    // Regression: the capture window (120 s) and the job wait (120 s) used to
+    // run back-to-back. An export whose download fired after the capture
+    // window closed returned a succeeded envelope with NO filePath — the
+    // listener was gone, so the file was never captured. The job must settle
+    // INSIDE the capture action, and the capture timeout must exceed the job
+    // timeout, so the listener is still attached when the download fires.
+    let captureEntered = false
+    let waitForJobInsideCapture: boolean | undefined
+    let captureTimeoutMs = 0
+    const kickoff = { ok: true, command: 'exportVideo', result: { jobId: 'j1' } }
+    const jobState = { id: 'j1', status: 'succeeded', result: { frames: 3 } }
+    const waitEnv = { ok: true, command: 'waitForJob', result: jobState, state: {} }
+    const session = {
+      runExclusiveDownload: <T>(fn: () => Promise<T>) => fn(),
+      withDownloadCapture: async (
+        _out: string,
+        action: () => Promise<any>,
+        timeoutMs: number,
+        shouldWait: (r: any) => boolean
+      ) => {
+        captureEntered = true
+        captureTimeoutMs = timeoutMs
+        const result = await action()
+        return { result, filePath: shouldWait(result) ? '/out/v.zip' : null }
+      },
+      runCommand: async (name: string) => {
+        if (name === 'waitForJob') waitForJobInsideCapture = captureEntered
+        return waitEnv
+      }
+    } as unknown as BrowserSession
+    const tool = wrapJobTool(baseTool(async () => kickoff), session, '/out')
+
+    const resp = await tool.handler({}) as any
+
+    expect(waitForJobInsideCapture).toBe(true)
+    // The capture window must outlast the job wait (waitForJob gets 120 s)
+    // plus a settle margin, or the download fires with no listener attached.
+    expect(captureTimeoutMs).toBeGreaterThan(120_000)
+    expect(resp.result.result.filePath).toBe('/out/v.zip')
+  })
+
   it('returns a failed waitForJob envelope as-is', async () => {
     const kickoff = { ok: true, command: 'exportVideo', result: { jobId: 'j1' } }
     const waitEnv = { ok: false, command: 'waitForJob', error: { code: 'BOOM' } }

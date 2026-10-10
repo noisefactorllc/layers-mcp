@@ -105,20 +105,38 @@ export function describeJobFailure(finalEnv: any): any | null {
  * download when it finishes.
  *
  * The handler:
- *   1. Starts download capture and kicks off the command — receives the
- *      `{jobId}` kickoff envelope back.
+ *   1. Starts download capture. The capture action kicks off the command —
+ *      receives the `{jobId}` kickoff envelope back — and then, inside the
+ *      SAME capture window, blocks on `waitForJob` until the job settles.
  *   2. While the job runs, the download fires; `withDownloadCapture`
  *      resolves with the saved file path.
- *   3. Calls `waitForJob` to retrieve the final job state.
- *   4. Splices `filePath` into the final job state's nested `result` and
- *      returns the `waitForJob` envelope (or an MCP-level error envelope on
- *      timeout / failure / cancellation).
+ *   3. When the capture window closes, the final job state and the captured
+ *      `filePath` are both in hand; `filePath` is spliced into the final
+ *      job state's nested `result`.
+ *
+ * Running the job wait INSIDE the capture window is load-bearing: the
+ * download fires when the job finishes, so the capture window must span the
+ * whole job. With the two waits run back-to-back (job wait AFTER capture),
+ * any export longer than the capture window returned a succeeded envelope
+ * with no `filePath` — the listener was already gone. The capture timeout is
+ * therefore the job timeout plus a settle margin, and `shouldWait` gates on
+ * the settled envelope: a succeeded job waits for its download; a failed or
+ * synchronously-errored one returns immediately (no download will fire).
+ *
+ * Returns the `waitForJob` envelope (or an MCP-level error envelope on
+ * timeout / failure / cancellation).
  */
 export function wrapJobTool(
   base: ToolDef,
   session: BrowserSession,
   outputDir: string
 ): ToolDef {
+  // waitForJob's own budget for the export job.
+  const JOB_WAIT_TIMEOUT_MS = 120_000
+  // Extra capture-window time beyond the job wait: the download event fires
+  // at job completion, so it needs headroom after waitForJob returns.
+  const DOWNLOAD_SETTLE_MARGIN_MS = 30_000
+
   return {
     ...base,
     handler: async (args: unknown) => {
@@ -126,28 +144,30 @@ export function wrapJobTool(
       // commands, but the page-level download listener race is on the JS
       // side, so concurrent export tools must take turns acquiring the mutex.
       return session.runExclusiveDownload(async () => {
-        const { result: kickoff, filePath } = await session.withDownloadCapture(
+        const { result, filePath } = await session.withDownloadCapture(
           outputDir,
-          async () => base.handler(args),
-          120_000,
-          // Don't wait on a download if the kickoff already failed
-          // synchronously (e.g. INVALID_ARGS): no download will ever fire.
-          (env: any) => Boolean(env?.ok && env?.result?.jobId)
+          async () => {
+            const kickoff = await base.handler(args) as any
+            if (!kickoff?.ok || !kickoff?.result?.jobId) return kickoff
+            return session.runCommand('waitForJob', {
+              jobId: kickoff.result.jobId,
+              timeoutMs: JOB_WAIT_TIMEOUT_MS
+            })
+          },
+          JOB_WAIT_TIMEOUT_MS + DOWNLOAD_SETTLE_MARGIN_MS,
+          // Wait for the download only when the job actually succeeded —
+          // a failed job (or a synchronous kickoff error, which carries no
+          // `result.status`) will never produce one.
+          (env: any) => Boolean(env?.ok && env?.result?.status === 'succeeded')
         )
-        const env = kickoff as any
-        if (!env?.ok || !env?.result?.jobId) return env  // pass through errors
-        const jobId = env.result.jobId
-
-        const finalEnv = await session.runCommand('waitForJob', {
-          jobId, timeoutMs: 120_000
-        }) as any
-        if (!finalEnv?.ok) return finalEnv
+        const env = result as any
+        if (!env?.ok) return env  // pass through errors
 
         // Splice filePath into a CLONE of the final envelope's nested result.
         // Original (frozen) shape: env -> result (jobState) -> result (job
         // callback's return value). We rebuild both levels rather than mutating.
-        let envWithPath = finalEnv
-        const job = finalEnv.result
+        let envWithPath = env
+        const job = env.result
         if (filePath && job?.result) {
           const localDownload = await finalizeCapturedDownload(
             filePath,
@@ -155,7 +175,7 @@ export function wrapJobTool(
             job.result.filename
           )
           envWithPath = {
-            ...finalEnv,
+            ...env,
             result: {
               ...job,
               result: {
